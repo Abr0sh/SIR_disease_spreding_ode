@@ -1,6 +1,6 @@
 #%%
 import numpy as np
-from world import World
+from world_class import World
 import numpy as np
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
@@ -17,14 +17,23 @@ from ode_solver import Euler,RungeKutta45
 
 #%%                                            SIS-model
 #---------------------------------------------------------------------------------------------------------
-# constants and initial conditions
-alpha,beta,initial_conditions,N = 0.1,0.15,[90,10],100
-T_final,dt = 200, 1
+# Disease parameters and initial conditions
+alpha , beta , gamma = [0.07,0.07,0.07],[0.2,0.2,0.2],[0.01,0.01,0.01]
+Nations = [100,500,1000]
+initial_conditions_SIS = [90,10]
+initial_conditions_SIR = [900,100,0]
+initial_conditions_SIRT = [90,350,900,10,150,100,0,0,0]
+k_SIS, k_SIR = 0,2 # selecting a single nation to model for the SIS and SIR models
+T_final,dt = 100, 1
+# Initiate the world model
+my_world = World(Nations) # initiates a world with a list of population counts
+my_world.add_dissease(alpha,beta,gamma,"disease") # adds the disease parameters
+# ----------------------------------------------------------------------------
 
+#%%
 # SIS forcast and solution
-Mynation = World(N)
-solRK,t = Mynation.forcast_SIS(alpha,beta,initial_conditions,T_final,dt)
-solE,t = Mynation.forcast_SIS(alpha,beta,initial_conditions,T_final,dt,odesolver="E")
+sol_SIS,t = my_world.forcast_SIS(initial_conditions_SIS,T_final,dt,k=k_SIS)
+
 # SIS EXACT solution
 def exact_SIS(t,beta,alpha,N,I0):
     r = beta/N
@@ -34,9 +43,8 @@ def exact_SIS(t,beta,alpha,N,I0):
 
 # Plot
 plt.figure()
-plt.plot(t,solRK[:,1],label = "Euler")
-plt.plot(t,solE[:,1],label="Runge Kutta")
-plt.plot(t,exact_SIS(t,beta,alpha,N,initial_conditions[1]),label = "Exact")
+plt.plot(t,sol_SIS[:,1],label = "Infected RK solution")
+plt.plot(t,exact_SIS(t,beta[0],alpha[0],Nations[0],initial_conditions_SIS[1]),label = "Exact")
 plt.title("Infected")
 plt.xlabel("days")
 plt.legend()
@@ -44,35 +52,22 @@ plt.show()
 
 #%%                                             SIR-model
 #-------------------------------------------------------------------------------------------------------------
-B,g,a,N,SIRinitial_conditions = 0.5,0.1,0.05,10000, [9900,100,0]
-T,dt = 100,1
-Mynation = World(N)
 
-sol,t = Mynation.forcast_SIR(a,B,g,SIRinitial_conditions,T,dt)
-plt.plot(t,sol[:,1],label = "RK4 I")
-plt.plot(t,sol[:,0],label = "S(t)")
+sol_SIR,t = my_world.forcast_SIR(initial_conditions_SIR,T_final,dt,k=k_SIR)
+plt.plot(t,sol_SIR[:,1],label = "I(t)",color = "r")
+plt.plot(t,sol_SIR[:,0],label = "S(t)",color = "y")
+plt.plot(t,sol_SIR[:,2],label = "R(t)",color = "g")
 plt.title("SIR model")
 plt.legend()
 plt.show()
 
-#%% you can also use the SIRT model for one nation
-B,g,a,N,SIRinitial_conditions = 0.5,0.1,0.05,10000, [9900,100,0]
-T,dt = 100,1
-Mynation = World(N)
-T_matrix = [0]
-sol,t = Mynation.forcast_SIRT(a,B,g,T_matrix,SIRinitial_conditions,T,dt)
-plt.plot(t,sol[:,0])
-plt.show()
 
 #%%                             Vaccination or no vaccination: SIS vs SIR forcasts
 #-------------------------------------------------------------------------------------------------------------
-b,g,a,N,SIRinitial_conditions = 0.6,0.01,0.07,10000, [9900,100,0]
-T,dt = 200,1
-vaxWorld = World(N)
-antivaxWorld = World(N)
+alpha , beta , gamma = [0.07,0.07,0.07],[0.6,0.6,0.6],[0.01,0.01,0.01] 
+v_sol,t = my_world.forcast_SIR([900,100,0],T_final,dt,k=2)
+av_sol,t = my_world.forcast_SIS([900,100],T_final,dt,k=2)
 
-v_sol,t = vaxWorld.forcast_SIR(a,b,g,[9900,100,0],T,dt)
-av_sol,t = antivaxWorld.forcast_SIS(a,b,[9900,100],T,dt)
 plt.plot(t,v_sol[:,1],label="Vaccination:ON")
 plt.plot(t,av_sol[:,1],label = "Vaccination: OFF")
 plt.legend()
@@ -88,37 +83,40 @@ plt.show()
 # %% SIRT : SIR model with traveling
 # -----------------------------------------------------------------------------------------------------------
 
-# Disease parameters
-b,g,a,N,SIRinitial_conditions = 0.15,0.07,0.07,[100,1000], [85,500,10,500,5,0]
-T,dt = 60,0.2 # time interval. max time and step size
-Mynation = World(N)
-
 # For the population of each nation to be constant, the travel matrix elements must satisfy:
 # T_ij N_i = T_ji N_j , number of people traveling from i to j is equal to those traveling from j to i
-T_matrix = np.array([[0,0.1],[0.01,0]]) 
-sol,t = Mynation.forcast_SIRT(a,b,g,T_matrix,SIRinitial_conditions,T,dt)
 
+#Constructing the travel matrix
+N0, N1,N2 = Nations[0],Nations[1],Nations[2]
+T01 ,T02,T12 = 0.1,0.3,0.07
+T10,T20,T21 = T01*N0/N1,T02*N0/N2,T12*N1/N2
+T_matrix = np.array([[0,T01,T02],[T10,0,T12],[T20,T21,0]])
+
+# getting solutions for the SIRT
+sol_SIRT,t = my_world.forcast_SIRT(initial_conditions_SIRT,T_final,dt,T_matrix)
 # unpack the solutions
-S1,S2 = sol[:,0],sol[:,1]
-I1,I2 = sol[:,2],sol[:,3]
-R1,R2 = sol[:,4],sol[:,5]
+S1, S2, S3, I1, I2, I3, R1, R2, R3 = [sol_SIRT[:, i] for i in range(9)]
 
-fig, axs = plt.subplots(1, 2, figsize=(20, 6))
+# Plotting
+nations_names = ["Nation 1", "Nation 2","Nation 3"]
+colors = ["r", "y", "g"]
+data = [I1, S1, R1, I2, S2, R2,I3,S3,R3]
+fig, axs = plt.subplots(1, len(nations_names), figsize=(20, 6))
 
-axs[0].plot(t,I1,label= "Infected",color = "r")
-axs[0].plot(t,S1,label = "Susceptible",color = "y")
-axs[0].plot(t,R1,label = "Recovered",color= "g")
-axs[0].set_aspect('auto')
-axs[0].set_title("Nation 1")
-axs[0].legend()
+for i, nation in enumerate(nations_names):
+    ax = axs[i]
+    start = i * 3
+    end = (i + 1) * 3
+    for j in range(start, end):
+        ax.plot(t, data[j], label=["Infected", "Susceptible", "Recovered"][j % 3], color=colors[j % 3])
+    ax.set_title(nation)
+    ax.legend()
+    ax.set_aspect('auto')
 
-axs[1].plot(t,I2,label= "Ifected",color = "r")
-axs[1].plot(t,S2,label = "Susceptible",color= "y")
-axs[1].plot(t,R2,label = "Recovered",color = "g")
-axs[1].set_title("Nation 2")
-axs[1].legend()
-axs[1].set_aspect('auto')
-
+plt.tight_layout()
+plt.show()
 
 
-# %%
+# %%  Compaire traveling vs no traveling:
+
+# %% 
